@@ -1,0 +1,50 @@
+{
+  "$meta": {
+    "version": 1,
+    "updatedAt": "__NOW__",
+    "source": "paperclip-enterprise-kit"
+  },
+  "database": {
+    "mode": "embedded-postgres",
+    "embeddedPostgresDataDir": "__ROOT__/db",
+    "embeddedPostgresPort": __DB_PORT__,
+    "backup": {
+      "enabled": true,
+      "intervalMinutes": 60,
+      "retentionDays": 30,
+      "dir": "__ROOT__/data/backups"
+    }
+  },
+  "logging": {
+    "mode": "file",
+    "logDir": "__ROOT__/logs"
+  },
+  "server": {
+    "deploymentMode": "local_trusted",
+    "exposure": "private",
+    "bind": "loopback",
+    "host": "127.0.0.1",
+    "port": __PORT__,
+    "allowedHostnames": [],
+    "serveUi": true
+  },
+  "auth": {
+    "baseUrlMode": "auto",
+    "disableSignUp": false
+  },
+  "telemetry": {
+    "enabled": false
+  },
+  "storage": {
+    "provider": "local_disk",
+    "localDisk": {
+      "baseDir": "__ROOT__/data/storage"
+    },
+    "s3": {
+      "bucket": "paperclip",
+      "region": "us-east-1",
+      "prefix": "",
+      "forcePathStyle": false
+    }
+  }
+}

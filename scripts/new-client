@@ -1,0 +1,561 @@
+#!/usr/bin/env bash
+# new-client: provision one client end to end (trees, company, agents, chains, onboarding).
+#
+# Usage:
+#   scripts/new-client --name <n> (--repo <url> | --new --repo <url>) [--profile vue-nest-mongo]
+#       [--mainline <branch>] [--mode standard] [--instance paperclip-enterprise]
+#       [--port <n>] [--db-port <n>] [--code-root <dir>] [--claude-config-dir <dir>] [--dry-run]
+#
+#   --repo        the client's git remote. With --new it is an EMPTY remote: the script, as the
+#                 operator, creates the mainline with one empty commit and pushes it.
+#   --mainline    default: the branch the remote's HEAD names; for an empty remote the profile's
+#                 `## Branching` mainline (else master).
+#   --code-root   where the trees live, default the parent directory of the kit checkout:
+#                 <root>/<n> (operator clone), <root>/<n>-fleet, <root>/<n>-retro (worktrees of it),
+#                 <root>/paperclip-enterprise-fleet (the kit's own fleet worktree, created once).
+#   --port/--db-port  default: the instance's config.json, else 3200/54330.
+#   --dry-run     print the numbered steps with their values; change nothing.
+#
+# Environment (optional): CLAUDE_CONFIG_DIR (default $HOME/.claude-paperclip-enterprise),
+# COMPLETION_GATE_EVIDENCE_DIR, QA_EVIDENCE_DIR, LINT_BANNED_TERMS_DIR (defaults under
+# $HOME/.paperclip-enterprise).
+#
+# Idempotent: every step looks for its result first and prints `exists <what>`, or
+# `created <what>` / `updated <what>` when it had to act. A second run creates nothing.
+# Ids are always resolved by name or title from the API; nothing is hardcoded.
+# Request bodies always go through files (`-d @file`).
+set -euo pipefail
+
+KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/paperclip-api.sh
+. "$KIT/scripts/lib/paperclip-api.sh"
+
+NAME="" REPO="" NEW=0 PROFILE=vue-nest-mongo MAINLINE="" MODE=standard
+INSTANCE=paperclip-enterprise PORT="" DB_PORT="" CODE_ROOT="" DRY=0
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude-paperclip-enterprise}"
+
+usage() { sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+die() { echo "new-client: $*" >&2; exit 1; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --name) NAME="${2:-}"; shift 2 ;;
+    --repo) REPO="${2:-}"; shift 2 ;;
+    --new) NEW=1; shift ;;
+    --profile) PROFILE="${2:-}"; shift 2 ;;
+    --mainline) MAINLINE="${2:-}"; shift 2 ;;
+    --mode) MODE="${2:-}"; shift 2 ;;
+    --instance) INSTANCE="${2:-}"; shift 2 ;;
+    --port) PORT="${2:-}"; shift 2 ;;
+    --db-port) DB_PORT="${2:-}"; shift 2 ;;
+    --code-root) CODE_ROOT="${2:-}"; shift 2 ;;
+    --claude-config-dir) CLAUDE_DIR="${2:-}"; shift 2 ;;
+    --dry-run) DRY=1; shift ;;
+    -h|--help) usage 0 ;;
+    *) echo "unknown option: $1" >&2; usage ;;
+  esac
+done
+[ -n "$NAME" ] || { echo "--name is required" >&2; usage; }
+[[ "$NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "--name must be lowercase letters, digits and dashes"
+[ -n "$REPO" ] || die "--repo <url> is required (with --new it names the empty remote)"
+for t in git jq curl; do command -v "$t" >/dev/null || die "$t is required"; done
+
+# --- derived values -------------------------------------------------------------------------
+T="$KIT/templates/company"
+ROSTER="$T/roster.json" ROUTINES="$T/routines.json" BLUEPRINT="$T/blueprint.json"
+PROFILE_FILE="$KIT/profiles/$PROFILE.md"
+[ -f "$PROFILE_FILE" ] || die "no profile $PROFILE_FILE"
+if [ -z "$MAINLINE" ]; then
+  # The branch the remote's HEAD names; only an empty remote falls back to the profile's value.
+  heads="$(git ls-remote --symref "$REPO" HEAD 2>/dev/null)" || die "cannot read the remote $REPO"
+  MAINLINE="$(sed -n 's|^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$|\1|p' <<<"$heads" | head -n1)"
+  if [ -z "$MAINLINE" ]; then
+    [ -z "$(git ls-remote "$REPO" 2>/dev/null)" ] || die "the remote $REPO names no HEAD branch; pass --mainline <branch>"
+    MAINLINE="$(awk '/^## Branching/{f=1;next} /^## /{f=0} f' "$PROFILE_FILE" | sed -n 's/^- mainline: *//p' | head -n1)"
+    MAINLINE="${MAINLINE:-master}"
+  fi
+fi
+[ "$MODE" = "$(jq -r .mode "$BLUEPRINT")" ] || die "mode $MODE is not defined by templates/company/blueprint.json"
+
+CODE_ROOT="${CODE_ROOT:-$(dirname "$KIT")}"
+CODE_ROOT="$(cd "$CODE_ROOT" 2>/dev/null && pwd)" || die "code root does not exist"
+OP="$CODE_ROOT/$NAME" FL="$CODE_ROOT/$NAME-fleet" RT="$CODE_ROOT/$NAME-retro"
+KF="$CODE_ROOT/paperclip-enterprise-fleet"
+FLEET_BRANCH="fleet/$NAME" ONB_BRANCH="onboarding/$NAME"
+CLIENT_DIR="$KIT/clients/$NAME" YAML="$KIT/clients/$NAME/client.yaml" ENVF="$KIT/clients/$NAME/agent-env"
+EVID_VIS="${COMPLETION_GATE_EVIDENCE_DIR:-$HOME/.paperclip-enterprise/evidence/visual}"
+EVID_QA="${QA_EVIDENCE_DIR:-$HOME/.paperclip-enterprise/evidence/qa}"
+LINT_DIR="${LINT_BANNED_TERMS_DIR:-$HOME/.paperclip-enterprise/lint}"
+ICFG="$HOME/.paperclip/instances/$INSTANCE/config.json"
+if [ -z "$PORT" ]; then PORT="$( [ -f "$ICFG" ] && jq -r '.server.port // empty' "$ICFG" || true)"; PORT="${PORT:-3200}"; fi
+if [ -z "$DB_PORT" ]; then DB_PORT="$( [ -f "$ICFG" ] && jq -r '.database.embeddedPostgresPort // empty' "$ICFG" || true)"; DB_PORT="${DB_PORT:-54330}"; fi
+INST_ARGS=(--instance "$INSTANCE" --port "$PORT" --db-port "$DB_PORT")
+API="http://127.0.0.1:$PORT"
+ISSUE_TITLE="Onboard $NAME"
+LABEL_COLORS=("#2563eb" "#16a34a" "#d97706" "#dc2626" "#7c3aed" "#0891b2")
+
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+pc_api_init "$API" "$TMP/api"
+
+declare -A IDS=()
+CID="" BOARD="" MODEL_OPUS="" MODEL_SONNET="" PROJECT_ID="" ISSUE_ID="" ISSUE_IDENT="" PREFIX=""
+
+res() { printf '%s %s\n' "$1" "$2"; }   # exists|created|updated|ok|... <what>
+STEP_N=0
+step() { STEP_N=$((STEP_N + 1)); printf '%2d. %s\n' "$STEP_N" "$1"; }
+roster_dirs() { jq -r '.[].dir' "$ROSTER"; }
+rget() { jq -r --arg d "$1" --arg k "$2" '.[]|select(.dir==$d)|.[$k]' "$ROSTER"; }
+yq_get() { sed -n "s/^$1: \"\(.*\)\"$/\1/p" "$YAML" 2>/dev/null | head -n1; }
+is_url() { [[ "$1" =~ ^[A-Za-z][A-Za-z0-9+.-]*:// ]]; }
+
+# --- dry run: the plan, nothing else ----------------------------------------------------
+if [ "$DRY" = 1 ]; then
+  echo "new-client --dry-run: no clone, no file, no API write"
+  step "validate templates/company and profiles/$PROFILE.md"
+  step "write $YAML (name $NAME, repo $REPO, profile $PROFILE, mainline $MAINLINE, mode $MODE, instance $INSTANCE)"
+  step "operator tree $OP: git clone $REPO$( [ "$NEW" = 1 ] && echo "; empty remote: commit --allow-empty 'chore: initialize repository' on $MAINLINE and push" )"
+  step "fleet worktree $FL on branch $FLEET_BRANCH from origin/$MAINLINE"
+  step "retro worktree $RT, detached at origin/$MAINLINE"
+  step "kit fleet worktree $KF, detached, from $KIT"
+  step "instance $INSTANCE up at $API (scripts/paperclip-instance.sh status, start if needed)"
+  step "login check: scripts/check-claude-login.sh --config-dir $CLAUDE_DIR"
+  step "company '$NAME' (POST /api/companies)"
+  step "resolve the board user (GET /api/auth/get-session) and models (GET /api/companies/:id/adapters/claude_local/models: newest 'opus', newest 'sonnet')"
+  step "labels: $(jq -r '[.labels[].name]|join(", ")' "$BLUEPRINT")"
+  step "company skills from $KIT/skills: $(jq -r '[.[].desiredSkills[]]|unique|join(", ")' "$ROSTER")"
+  step "agents ($(jq length "$ROSTER")): $(jq -r '[.[]|"\(.name) [\(.tier)]"]|join(", ")' "$ROSTER"); cwd $FL (Guinan: $RT); instructions $KIT/agents/<dir>/AGENTS.md"
+  step "reportsTo by dir: $(jq -r '[.[]|select(.reportsTo)|"\(.dir)->\(.reportsTo)"]|join(", ")' "$ROSTER")"
+  step "skills sync per agent (POST /api/agents/:id/skills/sync when the desired set differs)"
+  step "routines: $(jq -r '[.[].title]|join("; ")' "$ROUTINES")"
+  step "blueprint (PUT /api/companies/:id/workflow/blueprint): $(jq -r '"subtask " + ([.subtask_stages[]|.participants[0].dir // "user"]|join(",")) + "; feature " + ([.feature_stages[]|.participants[0].dir // "user"]|join(",")) + "; intake " + .intake_agent' "$BLUEPRINT"); retro + prepare-for-merge routine ids by title"
+  step "project '$NAME', workspace $FL"
+  step "env file $ENVF, then scripts/seed-agent-adapter.sh --api $API"
+  step "scripts/verify-hooks.sh $FL"
+  step "branch $ONB_BRANCH from origin/$MAINLINE with .paperclip-enterprise/profile.md and client.md, pushed"
+  step "issue '$ISSUE_TITLE' assigned to $(rget boothby name), executionPolicy null"
+  step "record ids in $YAML"
+  step "summary with the Paperclip URL"
+  exit 0
+fi
+
+# --- client.yaml --------------------------------------------------------------------------
+yaml_render() {
+  local k
+  cat <<EOF
+# Generated by scripts/new-client: inputs, trees, ports and the ids it created.
+name: "$NAME"
+repo: "$REPO"
+new: "$NEW"
+profile: "$PROFILE"
+mainline: "$MAINLINE"
+mode: "$MODE"
+instance: "$INSTANCE"
+port: "$PORT"
+db_port: "$DB_PORT"
+api: "$API"
+code_root: "$CODE_ROOT"
+operator_tree: "$OP"
+fleet_tree: "$FL"
+retro_tree: "$RT"
+kit_fleet_tree: "$KF"
+kit: "$KIT"
+claude_config_dir: "$CLAUDE_DIR"
+completion_gate_evidence_dir: "$EVID_VIS"
+qa_evidence_dir: "$EVID_QA"
+lint_banned_terms_dir: "$LINT_DIR"
+EOF
+  for k in $(printf '%s\n' "${!IDS[@]}" | sort); do printf '%s: "%s"\n' "$k" "${IDS[$k]}"; done
+}
+yaml_write() { # what
+  mkdir -p "$CLIENT_DIR"
+  yaml_render > "$TMP/client.yaml"
+  if [ -f "$YAML" ] && cmp -s "$TMP/client.yaml" "$YAML"; then res exists "$1"
+  elif [ -f "$YAML" ]; then cp "$TMP/client.yaml" "$YAML"; res updated "$1"
+  else cp "$TMP/client.yaml" "$YAML"; res created "$1"; fi
+}
+
+step "validate templates and profile"
+"$KIT/scripts/validate-templates.sh" > "$TMP/validate.out" 2>&1 || { cat "$TMP/validate.out" >&2; die "templates invalid"; }
+"$KIT/scripts/validate-profile.sh" "$PROFILE_FILE" > "$TMP/validate.out" 2>&1 || { cat "$TMP/validate.out" >&2; die "profile invalid"; }
+res ok "templates, profile $PROFILE"
+
+step "client.yaml"
+if [ -f "$YAML" ]; then # keep the ids a previous run recorded
+  while IFS= read -r line; do
+    k="${line%%:*}"; v="$(sed -n 's/^[^:]*: "\(.*\)"$/\1/p' <<<"$line")"
+    IDS["$k"]="$v"
+  done < <(grep -E '^[a-z_]+_id: ' "$YAML" || true)
+fi
+yaml_write "client.yaml $YAML"
+
+# --- trees ------------------------------------------------------------------------------
+step "operator tree $OP"
+if [ -e "$OP" ]; then
+  [ -d "$OP/.git" ] || die "$OP exists and is not a git clone"
+  [ "$(git -C "$OP" remote get-url origin 2>/dev/null)" = "$REPO" ] || die "$OP has a different origin than $REPO"
+  res exists "operator tree $OP"
+else
+  git clone -q "$REPO" "$OP" 2>"$TMP/clone.err" || { cat "$TMP/clone.err" >&2; die "clone failed"; }
+  res created "operator tree $OP"
+fi
+# Branches created from origin/* never track it (an operator `git pull` must not rebase onto the mainline).
+[ "$(git -C "$OP" config --get branch.autoSetupMerge || true)" = simple ] || git -C "$OP" config branch.autoSetupMerge simple
+git -C "$OP" fetch -q origin
+if git -C "$OP" ls-remote --exit-code origin "refs/heads/$MAINLINE" >/dev/null 2>&1; then
+  git -C "$OP" fetch -q origin "$MAINLINE"
+  res exists "mainline $MAINLINE"
+elif [ "$NEW" = 1 ]; then
+  if ! git -C "$OP" rev-parse -q --verify "refs/heads/$MAINLINE" >/dev/null; then
+    git -C "$OP" rev-parse -q --verify HEAD >/dev/null && die "$OP has commits but no $MAINLINE; refusing to initialize"
+    git -C "$OP" symbolic-ref HEAD "refs/heads/$MAINLINE"
+    git -C "$OP" commit -q --allow-empty -m "chore: initialize repository"
+  fi
+  git -C "$OP" push -q -u origin "$MAINLINE"
+  res created "mainline $MAINLINE (initial empty commit, pushed)"
+else
+  die "the remote has no $MAINLINE branch; pass --mainline <branch> to name the remote's mainline (or --new for an empty repository)"
+fi
+git -C "$OP" rev-parse -q --verify "refs/remotes/origin/$MAINLINE" >/dev/null || die "origin/$MAINLINE missing in $OP"
+
+listed() { git -C "$1" worktree list --porcelain | grep -qxF "worktree $2"; }
+step "fleet worktree $FL"
+if [ -e "$FL" ]; then
+  listed "$OP" "$FL" || die "$FL exists but is not a worktree of $OP"
+  res exists "fleet worktree $FL"
+else
+  if git -C "$OP" rev-parse -q --verify "refs/heads/$FLEET_BRANCH" >/dev/null; then
+    git -C "$OP" worktree add -q "$FL" "$FLEET_BRANCH"
+  else
+    git -C "$OP" worktree add -q --no-track -b "$FLEET_BRANCH" "$FL" "origin/$MAINLINE"
+  fi
+  res created "fleet worktree $FL (branch $FLEET_BRANCH)"
+fi
+
+step "retro worktree $RT"
+if [ -e "$RT" ]; then
+  listed "$OP" "$RT" || die "$RT exists but is not a worktree of $OP"
+  res exists "retro worktree $RT"
+else
+  git -C "$OP" worktree add -q --detach "$RT" "origin/$MAINLINE"
+  res created "retro worktree $RT (detached)"
+fi
+
+step "kit fleet worktree $KF"
+if [ -e "$KF" ]; then
+  listed "$KIT" "$KF" || die "$KF exists but is not a worktree of the kit"
+  res exists "kit fleet worktree $KF"
+else
+  git -C "$KIT" worktree add -q --detach "$KF" HEAD
+  res created "kit fleet worktree $KF (detached)"
+fi
+
+# --- instance and login ---------------------------------------------------------------------
+step "instance $INSTANCE at $API"
+if "$KIT/scripts/paperclip-instance.sh" status "${INST_ARGS[@]}" >/dev/null 2>&1 \
+   && curl -sf --max-time 5 "$API/api/health" >/dev/null; then
+  res exists "instance $INSTANCE"
+else
+  "$KIT/scripts/paperclip-instance.sh" start "${INST_ARGS[@]}" || die "instance start failed"
+  res started "instance $INSTANCE"
+fi
+
+step "Claude login ($CLAUDE_DIR)"
+CLAUDE_CONFIG_DIR="$CLAUDE_DIR" "$KIT/scripts/check-claude-login.sh" --config-dir "$CLAUDE_DIR" >/dev/null \
+  || die "the kit's Claude config dir is not logged in"
+res ok "login $CLAUDE_DIR"
+
+# --- company ------------------------------------------------------------------------------
+step "company $NAME"
+pc_get /api/companies > "$TMP/companies.json" || die "cannot list companies"
+n="$(jq --arg n "$NAME" '[.[]|select(.name==$n)]|length' "$TMP/companies.json")"
+[ "$n" -le 1 ] || die "more than one company is named $NAME"
+if [ "$n" = 1 ]; then
+  CID="$(jq -r --arg n "$NAME" '.[]|select(.name==$n)|.id' "$TMP/companies.json")"
+  res exists "company $NAME"
+else
+  b="$(pc_body --arg n "$NAME" '{name:$n, description:("Client " + $n + ", provisioned by new-client")}')"
+  CID="$(pc_post /api/companies "$b" | jq -r .id)" || die "company create failed"
+  res created "company $NAME"
+fi
+IDS[company_id]="$CID"
+PREFIX="$(pc_get "/api/companies/$CID" | jq -r '.issuePrefix // empty')" || true
+
+step "board user and models"
+BOARD="$(pc_get /api/auth/get-session 2>/dev/null | jq -r '.session.userId // .user.id // empty' || true)"
+[ -n "$BOARD" ] || BOARD="$(pc_get /api/cli-auth/me | jq -r '.userId // empty')" || true
+[ -n "$BOARD" ] || die "cannot resolve the board user from the API"
+pc_get "/api/companies/$CID/adapters/claude_local/models" | jq -r '.[].id' > "$TMP/models.txt" || die "cannot list Claude models"
+MODEL_OPUS="$(grep opus "$TMP/models.txt" | sort -V | tail -n1 || true)"
+MODEL_SONNET="$(grep sonnet "$TMP/models.txt" | sort -V | tail -n1 || true)"
+[ -n "$MODEL_OPUS" ] || die "the instance lists no model whose id contains 'opus'"
+[ -n "$MODEL_SONNET" ] || die "the instance lists no model whose id contains 'sonnet'"
+res resolved "board user $BOARD; opus $MODEL_OPUS; sonnet $MODEL_SONNET"
+
+step "labels"
+pc_get "/api/companies/$CID/labels" > "$TMP/labels.json" || die "cannot list labels"
+i=0
+while IFS= read -r label; do
+  if jq -e --arg n "$label" 'any(.[]; .name==$n)' "$TMP/labels.json" >/dev/null; then
+    res exists "label $label"
+  else
+    b="$(pc_body --arg n "$label" --arg c "${LABEL_COLORS[$((i % ${#LABEL_COLORS[@]}))]}" '{name:$n, color:$c}')"
+    pc_post "/api/companies/$CID/labels" "$b" >/dev/null || die "label $label create failed"
+    res created "label $label"
+  fi
+  i=$((i + 1))
+done < <(jq -r '.labels[].name' "$BLUEPRINT")
+
+step "company skills"
+pc_get "/api/companies/$CID/skills" > "$TMP/skills.json" || die "cannot list company skills"
+while IFS= read -r slug; do
+  if jq -e --arg s "$slug" 'any(.[]; .slug==$s)' "$TMP/skills.json" >/dev/null; then
+    res exists "skill $slug"
+  else
+    [ -f "$KIT/skills/$slug/SKILL.md" ] || die "roster skill $slug has no $KIT/skills/$slug/SKILL.md"
+    b="$(pc_body --arg s "$KIT/skills/$slug" '{source:$s}')"
+    pc_post "/api/companies/$CID/skills/import" "$b" >/dev/null || die "skill $slug import failed"
+    res created "skill $slug"
+  fi
+done < <(jq -r '[.[].desiredSkills[]]|unique|.[]' "$ROSTER")
+pc_get "/api/companies/$CID/skills" > "$TMP/skills.json" || die "cannot list company skills"
+
+# --- env table ----------------------------------------------------------------------------
+# Rendered from client.yaml (common lines) plus each role's roster env ([role:<dir>] sections).
+env_render() {
+  cat <<EOF
+# Generated by scripts/new-client from client.yaml and templates/company/roster.json.
+AGENTS_REPO=$(yq_get kit)
+# The kit checkout is an operator tree too: every agent reads its instructions from it.
+PRODUCT_OPERATOR_TREE=$(yq_get operator_tree):$(yq_get kit)
+PRODUCT_FLEET_TREE=$(yq_get fleet_tree)
+PRODUCT_RETRO_TREE=$(yq_get retro_tree)
+CLAUDE_CONFIG_DIR=$(yq_get claude_config_dir)
+COMPLETION_GATE_EVIDENCE_DIR=$(yq_get completion_gate_evidence_dir)
+QA_EVIDENCE_DIR=$(yq_get qa_evidence_dir)
+PAPERCLIP_BOARD_USER_ID=$BOARD
+GIT_GUARD_MAINLINE=$(yq_get mainline)
+LINT_BANNED_TERMS_DIR=$(yq_get lint_banned_terms_dir)
+EOF
+  jq -r '.[] | select((.env // {}) | length > 0) | "[role:\(.dir)]", (.env | to_entries[] | "\(.key)=\(.value)")' "$ROSTER"
+}
+env_render > "$TMP/agent-env"
+env_json() { # dir -> adapter env bindings for that role
+  awk -v role="$1" '
+    /^#/ || /^$/ { next }
+    /^\[role:/ { sec = substr($0, 7, length($0) - 7); next }
+    sec == "" || sec == role { i = index($0, "="); print substr($0, 1, i - 1) "\t" substr($0, i + 1) }
+  ' "$TMP/agent-env" | jq -R -s 'split("\n") | map(select(length > 0) | split("\t") | {key: .[0], value: {type: "plain", value: (.[1:] | join("\t"))}}) | from_entries'
+}
+
+# --- agents -------------------------------------------------------------------------------
+step "agents"
+pc_get "/api/companies/$CID/agents" > "$TMP/agents.json" || die "cannot list agents"
+for dir in $(roster_dirs); do
+  name="$(rget "$dir" name)"
+  id="$(jq -r --arg n "$name" '[.[]|select(.name==$n)][0].id // empty' "$TMP/agents.json")"
+  if [ -n "$id" ]; then
+    res exists "agent $name"
+  else
+    model="$MODEL_SONNET"; [ "$(rget "$dir" tier)" = opus ] && model="$MODEL_OPUS"
+    cwd="$FL"; [ "$dir" = guinan ] && cwd="$RT"
+    env_json "$dir" > "$TMP/env.$dir.json"
+    b="$(pc_body --slurpfile r "$ROSTER" --slurpfile e "$TMP/env.$dir.json" --arg d "$dir" --arg kit "$KIT" \
+      --arg model "$model" --arg cwd "$cwd" '
+      ($r[0][] | select(.dir == $d)) as $a
+      | {name: $a.name, role: $a.role, title: $a.title, desiredSkills: $a.desiredSkills,
+         adapterType: "claude_local",
+         adapterConfig: {model: $model, cwd: $cwd,
+           instructionsFilePath: ($kit + "/" + $a.instructionsFile),
+           instructionsBundleMode: "external",
+           instructionsRootPath: ($kit + "/" + ($a.instructionsFile | sub("/[^/]*$"; ""))),
+           timeoutSec: $a.timeoutSec, maxTurnsPerRun: $a.maxTurnsPerRun,
+           extraArgs: ["--settings", ($kit + "/hooks/claude-settings.json")],
+           env: $e[0]}}')"
+    id="$(pc_post "/api/companies/$CID/agents" "$b" | jq -r .id)" || die "agent $name create failed"
+    res created "agent $name"
+  fi
+  IDS["agent_${dir//-/_}_id"]="$id"
+done
+pc_get "/api/companies/$CID/agents" > "$TMP/agents.json" || die "cannot list agents"
+agent_id() { jq -r --arg n "$(rget "$1" name)" '[.[]|select(.name==$n)][0].id // empty' "$TMP/agents.json"; }
+
+step "reportsTo"
+for dir in $(roster_dirs); do
+  mgr="$(rget "$dir" reportsTo)"
+  [ "$mgr" = null ] || [ -z "$mgr" ] && continue
+  id="$(agent_id "$dir")" mid="$(agent_id "$mgr")"
+  [ -n "$mid" ] || die "reportsTo $mgr of $dir is not an agent of the company"
+  cur="$(jq -r --arg i "$id" '.[]|select(.id==$i)|.reportsTo // empty' "$TMP/agents.json")"
+  if [ "$cur" = "$mid" ]; then
+    res exists "reportsTo $dir -> $mgr"
+  else
+    b="$(pc_body --arg m "$mid" '{reportsTo:$m}')"
+    pc_patch "/api/agents/$id" "$b" >/dev/null || die "reportsTo for $dir failed"
+    res updated "reportsTo $dir -> $mgr"
+  fi
+done
+
+step "skills sync"
+for dir in $(roster_dirs); do
+  id="$(agent_id "$dir")"
+  pc_get "/api/agents/$id" > "$TMP/agent.json" || die "cannot read agent $dir"
+  want="$(jq -c --slurpfile r "$ROSTER" --arg d "$dir" \
+    '[($r[0][]|select(.dir==$d)|.desiredSkills[]) as $s | .[] | select(.slug==$s) | .key] | sort' "$TMP/skills.json")"
+  have="$(jq -c '[.adapterConfig.paperclipSkillSync.desiredSkills // [] | .[] | if type=="object" then .key else . end] | sort' "$TMP/agent.json")"
+  if [ "$want" = "$have" ]; then
+    res exists "skills $dir"
+  else
+    b="$(pc_body --slurpfile r "$ROSTER" --arg d "$dir" '{desiredSkills: ($r[0][]|select(.dir==$d)|.desiredSkills)}')"
+    pc_post "/api/agents/$id/skills/sync" "$b" >/dev/null || die "skills sync for $dir failed"
+    res updated "skills $dir"
+  fi
+done
+
+# --- routines and blueprint -----------------------------------------------------------------
+step "routines"
+pc_get "/api/companies/$CID/routines" > "$TMP/routines.json" || die "cannot list routines"
+n="$(jq length "$ROUTINES")"
+for i in $(seq 0 $((n - 1))); do
+  title="$(jq -r ".[$i].title" "$ROUTINES")"
+  if jq -e --arg t "$title" 'any(.[]; .title==$t)' "$TMP/routines.json" >/dev/null; then
+    res exists "routine $title"
+  else
+    aid="$(agent_id "$(jq -r ".[$i].assigneeDir" "$ROUTINES")")"
+    [ -n "$aid" ] || die "routine $title has no assignee agent"
+    b="$(pc_body --slurpfile r "$ROUTINES" --argjson i "$i" --arg a "$aid" '
+      $r[0][$i] | {title, description, assigneeAgentId: $a,
+        variables: [.variables[] | {name, required, label: (.description // null | if . then .[0:120] else . end)}]}')"
+    pc_post "/api/companies/$CID/routines" "$b" >/dev/null || die "routine $title create failed"
+    res created "routine $title"
+  fi
+done
+pc_get "/api/companies/$CID/routines" > "$TMP/routines.json" || die "cannot list routines"
+routine_by_prefix() {
+  jq -r --arg p "$1" '[.[]|select(.title|startswith($p))] | if length == 1 then .[0].id else empty end' "$TMP/routines.json"
+}
+RETRO_RID="$(routine_by_prefix "$(jq -r .retro.routineName "$BLUEPRINT")")"
+PFM_RID="$(routine_by_prefix "$(jq -r .prepare_for_merge_routineName "$BLUEPRINT")")"
+[ -n "$RETRO_RID" ] || die "no single routine titled '$(jq -r .retro.routineName "$BLUEPRINT")…'"
+[ -n "$PFM_RID" ] || die "no single routine titled '$(jq -r .prepare_for_merge_routineName "$BLUEPRINT")…'"
+
+step "workflow blueprint"
+jq -n '{}' > "$TMP/ids.json"
+for dir in $(roster_dirs); do
+  jq --arg d "$dir" --arg i "$(agent_id "$dir")" '.[$d]=$i' "$TMP/ids.json" > "$TMP/ids.new" && mv "$TMP/ids.new" "$TMP/ids.json"
+done
+jq --slurpfile ids "$TMP/ids.json" --arg board "$BOARD" --arg retro "$RETRO_RID" --arg pfm "$PFM_RID" '
+  def stages: map({type, participants: [.participants[] |
+    if .type == "user" then {type: "user", userId: $board, agentId: null}
+    else {type: "agent", agentId: ($ids[0][.dir] // error("unknown agent dir \(.dir)")), userId: null} end]});
+  {mode, subtaskStages: (.subtask_stages | stages), featureStages: (.feature_stages | stages),
+   haltPhrases: .halt_phrases, intakeAgentId: $ids[0][.intake_agent], gatedSubtaskKinds: .gated_subtask_kinds,
+   retro: {routineId: $retro, autoTrigger: .retro.autoTrigger, bounceThreshold: .retro.bounceThreshold,
+           cooldownHours: .retro.cooldownHours},
+   prepareForMergeRoutineId: $pfm}' "$BLUEPRINT" > "$TMP/bp.want.json" || die "blueprint template does not resolve"
+pc_get "/api/companies/$CID/workflow/blueprint" > "$TMP/bp.cur.json" || die "cannot read the blueprint"
+canon='def st: (. // []) | map({type, participants: [.participants[] | {type, agentId: (.agentId // null), userId: (.userId // null)}]});
+  {mode, subtaskStages: (.subtaskStages | st), featureStages: (.featureStages | st), haltPhrases, intakeAgentId,
+   gatedSubtaskKinds, retro: (.retro // {} | {routineId, autoTrigger, bounceThreshold, cooldownHours}), prepareForMergeRoutineId}'
+if [ "$(jq -c . "$TMP/bp.cur.json")" != null ] \
+   && [ "$(jq -cS "$canon" "$TMP/bp.cur.json")" = "$(jq -cS "$canon" "$TMP/bp.want.json")" ]; then
+  res exists "blueprint"
+else
+  was="$(jq -r 'if . == null then "created" else "updated" end' "$TMP/bp.cur.json")"
+  jq --slurpfile cur "$TMP/bp.cur.json" '. + {stages: ($cur[0].stages // []), returnEdges: ($cur[0].returnEdges // [])}' \
+    "$TMP/bp.want.json" > "$TMP/bp.put.json"
+  pc_put "/api/companies/$CID/workflow/blueprint" "$TMP/bp.put.json" >/dev/null || die "blueprint write failed"
+  res "$was" "blueprint"
+fi
+
+# --- project ------------------------------------------------------------------------------
+step "project $NAME"
+pc_get "/api/companies/$CID/projects" > "$TMP/projects.json" || die "cannot list projects"
+PROJECT_ID="$(jq -r --arg n "$NAME" '[.[]|select(.name==$n)][0].id // empty' "$TMP/projects.json")"
+if [ -n "$PROJECT_ID" ]; then
+  res exists "project $NAME"
+else
+  url=""; is_url "$REPO" && url="$REPO"
+  b="$(pc_body --arg n "$NAME" --arg cwd "$FL" --arg url "$url" --arg ref "$MAINLINE" --arg repo "$REPO" '
+    {name: $n, description: ("Client repository " + $repo), status: "in_progress",
+     workspace: ({name: $n, sourceType: "local_path", cwd: $cwd, defaultRef: $ref, isPrimary: true}
+                 + (if $url == "" then {} else {repoUrl: $url} end))}')"
+  PROJECT_ID="$(pc_post "/api/companies/$CID/projects" "$b" | jq -r .id)" || die "project create failed"
+  res created "project $NAME"
+fi
+IDS[project_id]="$PROJECT_ID"
+
+# --- adapter seeding and hook verification ----------------------------------------------------
+step "seed agent adapters"
+mkdir -p "$CLIENT_DIR" "$EVID_VIS" "$EVID_QA"
+if [ -f "$ENVF" ] && cmp -s "$TMP/agent-env" "$ENVF"; then res exists "env file $ENVF"
+elif [ -f "$ENVF" ]; then cp "$TMP/agent-env" "$ENVF"; res updated "env file $ENVF"
+else cp "$TMP/agent-env" "$ENVF"; res created "env file $ENVF"; fi
+"$KIT/scripts/seed-agent-adapter.sh" --api "$API" --company "$CID" --env-file "$ENVF" \
+  || die "seed-agent-adapter.sh failed"
+
+step "verify hooks"
+CLAUDE_CONFIG_DIR="$CLAUDE_DIR" "$KIT/scripts/verify-hooks.sh" "$FL" > "$TMP/verify.out" 2>&1 \
+  || { cat "$TMP/verify.out" >&2; die "verify-hooks.sh failed; no agent may run until it passes"; }
+res ok "verify-hooks $FL"
+
+# --- onboarding branch ------------------------------------------------------------------------
+step "onboarding branch $ONB_BRANCH"
+if git -C "$FL" ls-remote --exit-code origin "refs/heads/$ONB_BRANCH" >/dev/null 2>&1; then
+  res exists "branch $ONB_BRANCH"
+elif git -C "$FL" rev-parse -q --verify "refs/heads/$ONB_BRANCH" >/dev/null; then
+  git -C "$FL" push -q -u origin "$ONB_BRANCH"
+  res updated "branch $ONB_BRANCH (pushed)"
+else
+  [ -z "$(git -C "$FL" status --porcelain)" ] || die "$FL has uncommitted changes; cannot create $ONB_BRANCH"
+  back="$(git -C "$FL" symbolic-ref -q --short HEAD || git -C "$FL" rev-parse HEAD)"
+  git -C "$FL" switch -q --no-track -c "$ONB_BRANCH" "origin/$MAINLINE"
+  mkdir -p "$FL/.paperclip-enterprise"
+  { awk -v m="$MAINLINE" '/^## Branching/{f=1} /^## /&&!/^## Branching/{f=0} f&&/^- mainline:/{print "- mainline: " m; next} {print}' "$PROFILE_FILE"
+    echo
+    cat "$KIT/templates/client/profile-overrides.md"
+  } > "$FL/.paperclip-enterprise/profile.md"
+  sed -e "s|<client name>|$NAME|g" -e "s|<mainline branch>|$MAINLINE|g" "$KIT/templates/client/client.md" \
+    > "$FL/.paperclip-enterprise/client.md"
+  git -C "$FL" add .paperclip-enterprise/profile.md .paperclip-enterprise/client.md
+  git -C "$FL" commit -q -m "chore(onboarding): add the $PROFILE profile and client file for $NAME"
+  git -C "$FL" push -q -u origin "$ONB_BRANCH"
+  if git -C "$FL" rev-parse -q --verify "refs/heads/$back" >/dev/null; then git -C "$FL" switch -q "$back"
+  else git -C "$FL" switch -q --detach "$back"; fi
+  res created "branch $ONB_BRANCH (pushed)"
+fi
+
+# --- onboarding issue ---------------------------------------------------------------------
+step "onboarding issue"
+BOOTHBY="$(agent_id boothby)"
+[ -n "$BOOTHBY" ] || die "no Boothby agent in the company"
+# By title across the company: a failed first run may have moved the issue to a recovery owner.
+pc_get "/api/companies/$CID/issues?limit=1000" > "$TMP/issues.json" || die "cannot list issues"
+[ "$(jq --arg t "$ISSUE_TITLE" '[.[]|select(.title==$t)]|length' "$TMP/issues.json")" -le 1 ] \
+  || die "more than one issue is titled '$ISSUE_TITLE'"
+ISSUE_ID="$(jq -r --arg t "$ISSUE_TITLE" '[.[]|select(.title==$t)][0].id // empty' "$TMP/issues.json")"
+if [ -n "$ISSUE_ID" ]; then
+  ISSUE_IDENT="$(jq -r --arg i "$ISSUE_ID" '.[]|select(.id==$i)|.identifier' "$TMP/issues.json")"
+  res exists "issue $ISSUE_IDENT $ISSUE_TITLE"
+else
+  b="$(pc_body --arg t "$ISSUE_TITLE" --arg a "$BOOTHBY" --arg p "$PROJECT_ID" --arg n "$NAME" \
+    --arg br "$ONB_BRANCH" --arg m "$MAINLINE" --arg prof "$PROFILE" --arg new "$NEW" '
+    {title: $t, status: "todo", priority: "high", assigneeAgentId: $a, projectId: $p,
+     executionPolicy: null, idempotencyKey: ("onboarding:" + $n),
+     description: ("Onboard the client `" + $n + "`.\n\n- profile: `" + $prof + "`\n- mainline: `" + $m
+       + "`\n- branch: `" + $br + "` (pushed; carries `.paperclip-enterprise/profile.md` and `client.md`)\n- "
+       + (if $new == "1" then "brand-new repository: the mainline holds one empty initial commit"
+          else "existing repository" end))}')"
+  pc_post "/api/companies/$CID/issues" "$b" > "$TMP/issue.json" || die "onboarding issue create failed"
+  ISSUE_ID="$(jq -r .id "$TMP/issue.json")" ISSUE_IDENT="$(jq -r .identifier "$TMP/issue.json")"
+  res created "issue $ISSUE_IDENT $ISSUE_TITLE"
+fi
+IDS[onboarding_issue_id]="$ISSUE_ID"
+
+step "record ids"
+yaml_write "client.yaml ids"
+
+step "summary"
+echo "client     $NAME (profile $PROFILE, mainline $MAINLINE, mode $MODE)"
+echo "trees      $OP | $FL | $RT"
+echo "company    $API/${PREFIX:+$PREFIX/}dashboard"
+echo "onboarding $API/${PREFIX:+$PREFIX/}issues/$ISSUE_IDENT"

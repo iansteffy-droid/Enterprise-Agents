@@ -1,0 +1,99 @@
+{
+  "mode": "standard",
+  "intake_agent": "data",
+  "subtask_stages": [
+    {
+      "type": "review",
+      "participants": [
+        {
+          "type": "agent",
+          "dir": "hops"
+        }
+      ]
+    }
+  ],
+  "feature_stages": [
+    {
+      "type": "review",
+      "participants": [
+        {
+          "type": "agent",
+          "dir": "worf"
+        }
+      ]
+    },
+    {
+      "type": "review",
+      "participants": [
+        {
+          "type": "agent",
+          "dir": "crusher"
+        }
+      ]
+    },
+    {
+      "type": "review",
+      "participants": [
+        {
+          "type": "agent",
+          "dir": "ro-laren"
+        }
+      ]
+    },
+    {
+      "type": "review",
+      "participants": [
+        {
+          "type": "agent",
+          "dir": "obrien"
+        }
+      ]
+    },
+    {
+      "type": "approval",
+      "participants": [
+        {
+          "type": "user"
+        }
+      ]
+    }
+  ],
+  "gated_subtask_kinds": [
+    "impl",
+    "tests"
+  ],
+  "halt_phrases": [
+    "done",
+    "merged",
+    "done and merged",
+    "cancel",
+    "cancelled",
+    "stop",
+    "halt"
+  ],
+  "retro": {
+    "routineName": "Crew retrospective",
+    "autoTrigger": true,
+    "bounceThreshold": 2,
+    "cooldownHours": 24
+  },
+  "prepare_for_merge_routineName": "Prepare branch for merge",
+  "labels": [
+    {
+      "name": "kind:impl",
+      "description": "Implementation subtask"
+    },
+    {
+      "name": "kind:tests",
+      "description": "Test-writing subtask"
+    },
+    {
+      "name": "kind:repro",
+      "description": "Reproduction-steps subtask"
+    },
+    {
+      "name": "security-relevant",
+      "description": "Touches a security path; needs security review attention"
+    }
+  ]
+}

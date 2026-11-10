@@ -1,0 +1,1 @@
+ALTER TABLE "issues" ADD COLUMN "left_intake_at" timestamp with time zone;

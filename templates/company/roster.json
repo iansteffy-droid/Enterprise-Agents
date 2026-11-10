@@ -1,0 +1,166 @@
+[
+  {
+    "dir": "data",
+    "name": "Lt. Commander Data",
+    "title": "Intake lead",
+    "role": "pm",
+    "tier": "sonnet",
+    "reportsTo": null,
+    "desiredSkills": [
+      "intake-clarification",
+      "triage"
+    ],
+    "env": {},
+    "timeoutSec": 1800,
+    "maxTurnsPerRun": 150,
+    "instructionsFile": "agents/data/AGENTS.md"
+  },
+  {
+    "dir": "riker",
+    "name": "Riker",
+    "title": "Dispatcher",
+    "role": "cto",
+    "tier": "opus",
+    "reportsTo": null,
+    "desiredSkills": [],
+    "env": {},
+    "timeoutSec": 1800,
+    "maxTurnsPerRun": 150,
+    "instructionsFile": "agents/riker/AGENTS.md"
+  },
+  {
+    "dir": "geordi",
+    "name": "Geordi",
+    "title": "Developer",
+    "role": "engineer",
+    "tier": "opus",
+    "reportsTo": "riker",
+    "desiredSkills": [
+      "debugging-playbook",
+      "testing"
+    ],
+    "env": {},
+    "timeoutSec": 1800,
+    "maxTurnsPerRun": 150,
+    "instructionsFile": "agents/geordi/AGENTS.md"
+  },
+  {
+    "dir": "hops",
+    "name": "Hops the Code Reviewer Rabbit",
+    "title": "Code reviewer",
+    "role": "engineer",
+    "tier": "sonnet",
+    "reportsTo": "riker",
+    "desiredSkills": [
+      "code-review",
+      "review-learnings-sync"
+    ],
+    "env": {},
+    "timeoutSec": 1800,
+    "maxTurnsPerRun": 150,
+    "instructionsFile": "agents/hops/AGENTS.md"
+  },
+  {
+    "dir": "worf",
+    "name": "Worf",
+    "title": "Security reviewer",
+    "role": "engineer",
+    "tier": "opus",
+    "reportsTo": "riker",
+    "desiredSkills": [
+      "security-review"
+    ],
+    "env": {},
+    "timeoutSec": 1800,
+    "maxTurnsPerRun": 150,
+    "instructionsFile": "agents/worf/AGENTS.md"
+  },
+  {
+    "dir": "crusher",
+    "name": "Dr Crusher",
+    "title": "QA and acceptance",
+    "role": "engineer",
+    "tier": "opus",
+    "reportsTo": "riker",
+    "desiredSkills": [
+      "testing"
+    ],
+    "env": {},
+    "timeoutSec": 3600,
+    "maxTurnsPerRun": 300,
+    "instructionsFile": "agents/crusher/AGENTS.md"
+  },
+  {
+    "dir": "ro-laren",
+    "name": "Ro Laren",
+    "title": "Visual verifier and repro author",
+    "role": "engineer",
+    "tier": "sonnet",
+    "reportsTo": "riker",
+    "desiredSkills": [],
+    "env": {},
+    "timeoutSec": 1800,
+    "maxTurnsPerRun": 150,
+    "instructionsFile": "agents/ro-laren/AGENTS.md"
+  },
+  {
+    "dir": "obrien",
+    "name": "O'Brien",
+    "title": "Branch hygiene and release integration",
+    "role": "engineer",
+    "tier": "sonnet",
+    "reportsTo": "riker",
+    "desiredSkills": [],
+    "env": {
+      "GIT_GUARD_FORCE_PUSH_ALLOW": "1"
+    },
+    "timeoutSec": 1800,
+    "maxTurnsPerRun": 150,
+    "instructionsFile": "agents/obrien/AGENTS.md"
+  },
+  {
+    "dir": "lwaxana",
+    "name": "Lwaxana Troi",
+    "title": "Test planner and writer",
+    "role": "engineer",
+    "tier": "sonnet",
+    "reportsTo": "riker",
+    "desiredSkills": [
+      "testing"
+    ],
+    "env": {},
+    "timeoutSec": 1800,
+    "maxTurnsPerRun": 150,
+    "instructionsFile": "agents/lwaxana/AGENTS.md"
+  },
+  {
+    "dir": "guinan",
+    "name": "Guinan",
+    "title": "Retro facilitator",
+    "role": "engineer",
+    "tier": "sonnet",
+    "reportsTo": "riker",
+    "desiredSkills": [],
+    "env": {
+      "GIT_GUARD_PUSH_ALLOW": "retro/*"
+    },
+    "timeoutSec": 1800,
+    "maxTurnsPerRun": 150,
+    "instructionsFile": "agents/guinan/AGENTS.md"
+  },
+  {
+    "dir": "boothby",
+    "name": "Boothby",
+    "title": "Repo onboarder",
+    "role": "engineer",
+    "tier": "opus",
+    "reportsTo": "riker",
+    "desiredSkills": [],
+    "env": {
+      "GIT_GUARD_PUSH_ALLOW": "onboarding/*"
+    },
+    "timeoutSec": 3600,
+    "maxTurnsPerRun": 300,
+    "instructionsFile": "agents/boothby/AGENTS.md"
+  }
+]

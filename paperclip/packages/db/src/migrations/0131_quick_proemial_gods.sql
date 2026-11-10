@@ -1,0 +1,1 @@
+ALTER TABLE "issues" ADD COLUMN "execution_policy_ungated_at" timestamp with time zone;

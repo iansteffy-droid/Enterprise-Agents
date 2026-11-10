@@ -1,0 +1,19 @@
+{
+  "name": "@paperclipai/evals",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@paperclipai/db": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.21",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.8"
+  }
+}

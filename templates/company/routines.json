@@ -1,0 +1,58 @@
+[
+  {
+    "title": "Crew retrospective — {{issueIdentifier}}",
+    "description": "Run a retrospective on the finished or bounced issue {{issueIdentifier}}. Operator satisfaction: {{satisfactionScore}}. Operator feedback: {{operatorFeedback}}.",
+    "assigneeDir": "guinan",
+    "variables": [
+      {
+        "name": "issueIdentifier",
+        "required": true,
+        "description": "Identifier of the issue to review"
+      },
+      {
+        "name": "satisfactionScore",
+        "required": false,
+        "description": "Operator satisfaction score, when given"
+      },
+      {
+        "name": "operatorFeedback",
+        "required": false,
+        "description": "Free-text operator feedback, when given"
+      }
+    ],
+    "trigger": "manual"
+  },
+  {
+    "title": "Write repro steps — {{issueIdentifier}}",
+    "description": "Write reproduction steps for the issue {{issueIdentifier}}.",
+    "assigneeDir": "ro-laren",
+    "variables": [
+      {
+        "name": "issueIdentifier",
+        "required": true,
+        "description": "Identifier of the issue to reproduce"
+      }
+    ],
+    "trigger": "manual"
+  },
+  {
+    "title": "Sync review learnings",
+    "description": "Fold accumulated review learnings back into the review guidance.",
+    "assigneeDir": "hops",
+    "variables": [],
+    "trigger": "manual"
+  },
+  {
+    "title": "Prepare branch for merge — {{branch}}",
+    "description": "Prepare the branch {{branch}} for merge into the mainline.",
+    "assigneeDir": "obrien",
+    "variables": [
+      {
+        "name": "branch",
+        "required": true,
+        "description": "Branch to prepare"
+      }
+    ],
+    "trigger": "manual"
+  }
+]

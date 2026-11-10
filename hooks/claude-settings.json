@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "rtk hook claude", "timeout": 15 },
+          { "type": "command", "command": "python3 \"$AGENTS_REPO/hooks/git-guard.py\"", "timeout": 15 },
+          { "type": "command", "command": "bash \"$AGENTS_REPO/hooks/completion-gate.sh\"", "timeout": 15 }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"$AGENTS_REPO/hooks/detach-idle-worktree.sh\"", "timeout": 15 }
+        ]
+      }
+    ]
+  }
+}

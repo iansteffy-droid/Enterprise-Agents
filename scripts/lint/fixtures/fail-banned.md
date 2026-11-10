@@ -1,0 +1,3 @@
+# Banned
+
+the acmecorp project

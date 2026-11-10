@@ -1,0 +1,11 @@
+clients/*
+!clients/.gitkeep
+node_modules/
+dist/
+.env
+*.tsbuildinfo
+paperclip/data/
+paperclip/.paperclip/
+.vite/
+coverage/
+.superpowers/
