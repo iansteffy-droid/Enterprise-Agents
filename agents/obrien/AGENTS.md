@@ -26,11 +26,11 @@ Run each check, paste its command and output into the evidence.
 4. **Reconciled with its base.** `git rev-list --left-right --count <base>...<feature>`: behind by any commit is a finding; list the paths that would conflict read-only with `git merge-tree --write-tree --name-only <base> <feature>`.
 5. **Pushed.** The remote feature branch is at the hand-off HEAD; a local feature branch ahead of its remote is a finding.
 6. **Commit count.** Report `git rev-list --count <base>..<feature>`. When it is more than one, say it will become one commit when the operator triggers prepare-for-merge. Never squash at the gate.
-7. **PR opened or updated.** `gh pr list --head <feature>`. None: open it with `gh pr create` against the base; one exists: bring its title and description up to date with `gh pr edit`. The description states the feature, its acceptance criteria and the issue key.
+7. **PR state, read-only.** `gh pr list --head <feature> --state open`. You never open, edit, retarget or close a PR (`_shared/self-driving-branch-model.md`, Pull requests are operator-only). None open: your comment carries `Operator action needed: open the PR — gh pr create --base <mainline> --head <branch>` with the real base and branch. One open: report its URL and whether its base is the mainline. More than one open for the feature: a finding, named for the operator to close.
 8. **Unpushed branches.** Report every other local branch with no upstream or ahead of it, as information for the operator; one that belongs to this feature is already a finding under 3.
 
 ## Decision
-- **Approve:** every check passed. The comment is the git evidence summary: base and merge-base, ahead and behind, the branch list, the commit count, the PR link, the unpushed-branch report.
+- **Approve:** every check passed. The comment is the git evidence summary: base and merge-base, ahead and behind, the branch list, the commit count, the PR link or the `Operator action needed: open the PR` line, the unpushed-branch report.
 - **Request changes:** any finding: the exact refs, commits or paths, and what must change (merge the base in, merge and delete a sub-branch, push the branch).
 - **Hold:** untimed, `Operator action needed:`, when only the operator can act: `gh` is not authenticated, or the branch is held in the operator's checkout. The comment carries the exact one-liner they run.
 

@@ -178,16 +178,16 @@ No new dependencies. No sign-in is involved.
 | 10 | Dr Crusher | five steps; CI still running at step 3 gives a timed `hold` (`QA on hold: CI pending for <sha>`), zero or more times | F: `in_review` / Dr Crusher throughout | F: `held` (review, Dr Crusher) per hold | Dr Crusher: `execution_hold_resumed` per hold |
 | 11 | Dr Crusher | CI green, every criterion observed: `approve` | F: `in_review` / Ro Laren | F: `approved` (review, Dr Crusher) | Ro Laren: `execution_review_requested` |
 | 12 | Ro Laren | numbered walkthrough, one screenshot per step, network log: `approve` | F: `in_review` / O'Brien | F: `approved` (review, Ro Laren) | O'Brien: `execution_review_requested` |
-| 13 | O'Brien | the eight checks; opens the PR with `gh pr create`: `approve` | F: `in_review` / Board (approval stage) | F: `approved` (review, O'Brien) | none: the board's turn; F shows in the dashboard's "Waiting on you" panel as `Approve or reject` |
+| 13 | O'Brien | the eight checks; no PR exists, so the comment carries `Operator action needed: open the PR — gh pr create …`: `approve` | F: `in_review` / Board (approval stage) | F: `approved` (review, O'Brien) | none: the board's turn; F shows in the dashboard's "Waiting on you" panel as `Approve or reject` |
 | 14 | Board | sends `approve.json` | F: `done` | F: `approved` (approval, Board) | none |
-| 15 | Human | merges the PR outside Paperclip | unchanged | none | none |
+| 15 | Human | opens the PR with the line from O'Brien's comment, then merges it outside Paperclip | unchanged | none | none |
 
 A subtask bounce (Hops `request_changes`) is allowed: it adds `changes_requested` on that subtask, wakes its author with `execution_changes_requested`, and the re-submission is re-reviewed at the same stage. Record it; two bounces in the tree fire the retro routine (scenario 6 describes what that looks like).
 
 **Evidence to capture.** `capture s1 <F key>`. Then:
 - `$COMPLETION_GATE_EVIDENCE_DIR/<F id>/`: Ro Laren's screenshots `01-…`, `02-…` and the network log, also attached to F.
 - `$QA_EVIDENCE_DIR/<F id>/<sha>/`: Dr Crusher's per-step status files, command outputs, network and console logs, her edge list.
-- The PR URL from O'Brien's approve comment, in `$RUNBOOK_OUT/s1/pr.txt`.
+- The `gh pr create` line from O'Brien's approve comment, in `$RUNBOOK_OUT/s1/pr.txt`, and the URL of the PR the human opened with it.
 - F's comments (`get "/api/issues/$F_ID/comments"`), for Data's task grade, Riker's submission and each verdict.
 
 **Pass criteria.**
@@ -195,7 +195,7 @@ A subtask bounce (Hops `request_changes`) is allowed: it adds `changes_requested
 - The board acted only at steps 1 and 14; nobody set an assignee, a policy or a reviewer by hand.
 - Every agent verdict ends with `Last-reviewed SHA:`; Hops' verdicts also carry `Confidence Score:`.
 - Both evidence roots hold their files; nothing of Dr Crusher's is under `$COMPLETION_GATE_EVIDENCE_DIR`.
-- One branch, one PR, open against the mainline; `retro-metrics` `totals.bounces` matches the `changes_requested` rows (zero on a clean run).
+- One branch; no PR for the feature exists before step 15 (`gh pr list --state all --head <feature branch>` is empty at step 14), and after step 15 exactly one, the human's, open against the mainline; `retro-metrics` `totals.bounces` matches the `changes_requested` rows (zero on a clean run).
 
 ## 2. Worf's short run
 
@@ -363,7 +363,7 @@ git -C "$OP" push origin "$ML"
 | 15 | Geordi | merges the base into the feature branch, re-runs the definition of done, pushes, hands off with `Fixed:` | X: `in_review` / Hops | none | Hops: `execution_review_requested` |
 | 16 | Hops | `approve` | X: `done` | X: `approved` (review, Hops) | Riker: `issue_children_completed` (or `issue_blockers_resolved`) |
 | 17 | Riker | Verify and submit again; the submission adds `Fixed:` and `Declined:` from X and the new `HEAD:` | F: `in_review` / O'Brien (the stage that asked) | none | O'Brien: `execution_review_requested` |
-| 18 | O'Brien | the branch is reconciled: `approve`, PR updated | F: `in_review` / Board (approval stage) | F: `approved` (review, O'Brien) | none |
+| 18 | O'Brien | the branch is reconciled and pushed: `approve` (the open PR follows the pushed branch; nobody edits it) | F: `in_review` / Board (approval stage) | F: `approved` (review, O'Brien) | none |
 | 19 | Board | sends `approve.json` | F: `done` | F: `approved` (approval, Board) | none |
 
 If the tree's `changes_requested` count reaches the blueprint's bounce threshold (2) with this bounce, the server also fires the retro routine once: a new issue `Crew retrospective — <F key>` assigned to Guinan, with `satisfactionScore` `unscored (auto: bounce_threshold)`. That is expected and not part of this scenario's pass.

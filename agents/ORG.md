@@ -22,7 +22,7 @@ The roster sets each agent's model from its tier. Agents carry no ids: to addres
 ## The flow and the two chains
 Data clarifies a request and assigns it to Riker; that first assignment away from intake attaches the feature chain. Riker slices it into subtasks and parks the feature `blocked` on them. When the last child is `done`, Riker verifies the assembled branch and submits the feature `in_review`.
 - **Subtask chain**, attached at creation to `kind:impl` and `kind:tests`: Hops → done.
-- **Feature chain**: Worf → Dr Crusher → Ro Laren → O'Brien → the board's approval. The human then merges the PR.
+- **Feature chain**: Worf → Dr Crusher → Ro Laren → O'Brien → the board's approval. The human then opens the PR and merges it; no agent opens, edits or closes a PR.
 
 Nobody sets `executionPolicy`, names a reviewer or changes an assignee: the server routes. A subtask finding returns to its author. A feature finding returns to Riker, who opens one `kind:impl` fix subtask for Geordi on the same branch and re-submits; the chain resumes at the stage that asked.
 
@@ -41,7 +41,7 @@ Standard mode runs one feature at a time per client: the writers share the fleet
 Universal (`ORG.md`, `_shared/`, each `AGENTS.md`) > the client's `CLAUDE.md` > the stack profile `.paperclip-enterprise/profile.md`. Stack commands are quoted from the profile's `## Commands` by row name, never inlined. Client facts live in `.paperclip-enterprise/client.md`.
 
 ## Push policy
-Agents may push any branch except the mainline (`$GIT_GUARD_MAINLINE`), which no agent commits to, merges into, switches to, resets or pushes; only a human merge changes it. One feature, one branch, one PR; sub-branches merge back and are deleted. Branches are pushed with `git push -u origin HEAD` after switching to them. `GIT_GUARD_PUSH_ALLOW` narrows an agent to globs: Guinan `retro/*`, Boothby `onboarding/*`. Force-push is O'Brien's alone, `--force-with-lease` on the feature branch in prepare-for-merge (`GIT_GUARD_FORCE_PUSH_ALLOW`). Nothing squashes automatically; the operator triggers prepare-for-merge.
+Agents may push any branch except the mainline (`$GIT_GUARD_MAINLINE`), which no agent commits to, merges into, switches to, resets or pushes; only a human merge changes it. One request, one feature, one branch, one PR, opened by the human; sub-branches merge back and are deleted. Branches are pushed with `git push -u origin HEAD` after switching to them. `GIT_GUARD_PUSH_ALLOW` narrows an agent to globs: Guinan `retro/*`, Boothby `onboarding/*`. Force-push is O'Brien's alone, `--force-with-lease` on the feature branch in prepare-for-merge (`GIT_GUARD_FORCE_PUSH_ALLOW`). Nothing squashes automatically; the operator triggers prepare-for-merge.
 
 ## Worktrees per client
 - **Operator tree** (`$PRODUCT_OPERATOR_TREE`): the human's checkout. No agent moves its HEAD; a branch held there is an `Operator action needed:` one-liner.

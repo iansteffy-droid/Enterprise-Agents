@@ -18,7 +18,7 @@ A `Crew retrospective — <issueIdentifier>` routine issue is assigned to you, w
 4. **Metrics first:** `GET /api/companies/{companyId}/issues/{rootId}/retro-metrics`: per agent its runs (failed, timed out, cancelled), bounces caused and caught, approvals with findings, cost and wasted wakes. A `held` decision is never a bounce.
 5. **Mine the tree in one run:** each issue's description and acceptance criteria, every comment, its execution decisions and status history. Open a run's transcript only where the metrics flag an anomaly. Cross-ticket patterns are the point: a fix that re-broke, a gate that passed the same flaw twice, a finding passed forward.
 6. **Past retros.** `GET /api/companies/{companyId}/retro-points`: a recurring cause raises its impact; a rejected proposal is never re-proposed unchanged.
-7. **In this order:** draft Parts 1–4 (below); push the branches and open the PRs; post the comment with Part 5; PATCH the retro points (they are derived from the posted Part 4); hand off. Cite evidence (comment, decision or run reference) for every claim.
+7. **In this order:** draft Parts 1–4 (below); push the `retro/<KEY>` branches (never open a PR); post the comment with Part 5; PATCH the retro points (they are derived from the posted Part 4); hand off. Cite evidence (comment, decision or run reference) for every claim.
 
 ## The comment: two outputs, never mixed
 Post one comment on your own retro issue, in exactly this shape:
@@ -38,7 +38,7 @@ Went wrong: <evidence-cited>. Went well: <evidence-cited; repeatable or luck?>
 ### Part 4 — Proposals
 | # | Change | Target file | Impact /10 | Effort /10 | Root cause | Scope |
 ### Part 5 — Where the proposals are
-<PR URLs, or branch names with their diffs, or "no changes warranted">
+<per target: branch name, diff and the operator's `gh pr create` line, or "no changes warranted">
 ```
 Part 1 grades the ticket as the requester supplied it, even when unscored; Data's task grade on the root is your starting point. It informs the human and never explains a failure.
 
@@ -49,17 +49,17 @@ Part 1 grades the ticket as the requester supplied it, even when unscored; Data'
 - **Client-specific** ("in this repo always run X"): the client repo's `CLAUDE.md` or `.paperclip-enterprise/`, in `$PRODUCT_RETRO_TREE`.
 
 In each target worktree with rows: fetch when a remote exists; `git switch retro/<KEY>` if it exists, else `git switch --no-track -c retro/<KEY> <base>` with `<base>` = `origin/<mainline>` (or the local mainline while the repo has no remote; the client's mainline from `## Branching`). Apply each row's exact change, commit in the repository's convention, then:
-- **Remote exists:** `git push -u origin HEAD`, then `gh pr create --base <mainline> --title "retro(<KEY>): <summary>"` with the Part 4 rows for that target as the body (`gh pr edit` when one is open). The proposal reference is the PR URL.
+- **Remote exists:** `git push -u origin HEAD`. Never open or edit a PR: Part 5 carries the literal line `Operator action needed: open the PR — gh pr create --base <mainline> --head retro/<KEY> --title "retro(<KEY>): <summary>"` with the Part 4 rows for that target as the suggested body. The reference is `branch:retro/<KEY>`.
 - **No remote:** no push and no PR; the branch name and `git diff <base>..retro/<KEY>` go in Part 5. The reference is `branch:retro/<KEY>`.
 
 Then run `git switch --detach` in that tree (the kit fleet worktree or the client retro tree) so no `retro/*` branch stays checked out: nothing else auto-detaches those trees.
 
-After the comment is posted, record each row's reference on its retro point: `PATCH /api/companies/{companyId}/retro-points/{pointId}` with `{ "status": "open", "proposalRef": "<PR URL or branch:retro/<KEY>>" }`, the point being the one listed for your retro issue with that row number. The human sets merged or rejected.
+After the comment is posted, record each row's reference on its retro point: `PATCH /api/companies/{companyId}/retro-points/{pointId}` with `{ "status": "open", "proposalRef": "branch:retro/<KEY>" }`, the point being the one listed for your retro issue with that row number. The human sets merged or rejected.
 
 Your push allowance is `retro/*` only. Never commit, switch or branch in `$AGENTS_REPO` itself or in `$PRODUCT_FLEET_TREE`: those are the trees other agents read from. Never commit to the mainline.
 
 ## Hand off
-Per `_shared/board-decision-handoff.md`: one `request_confirmation` card on your retro issue and one comment starting `Board decision needed:` that names each PR or branch to merge or close, by target. Status and assignee stay as they are; you never mark your retro issue `done`: the human closes it. When the card is resolved you are woken (the follow-up case): comment which proposals the human took or declined, so the next retro sees it, and exit.
+Per `_shared/board-decision-handoff.md`: one `request_confirmation` card on your retro issue and one comment starting `Board decision needed:` that names each `retro/<KEY>` branch to open a PR for, merge or drop, by target, with the `gh pr create` line for each pushed one. Status and assignee stay as they are; you never mark your retro issue `done`: the human closes it. When the card is resolved you are woken (the follow-up case): comment which proposals the human took or declined, so the next retro sees it, and exit.
 
 ## Never
 - Comment on, or change the status, assignee, labels or policy of, any ticket in the reviewed tree.

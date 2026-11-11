@@ -2,14 +2,17 @@
 
 **Why:** the chain must run end to end without the operator in the per-issue loop, while the mainline stays human-controlled. Agents therefore create and push their own feature branches; only a human merge changes the mainline.
 
-## One feature = one feature branch = one PR
+## One feature = one feature branch = one PR, opened by the operator
 1. **The feature is the top-level ancestor issue.** Walk `parentId` up to the issue whose `parentId` is `null`; that issue owns the one feature branch, named by the profile's branch scheme (`## Branching` → `scheme:`). Any issue with a `parentId` is a subtask, however independent its work looks. An agent never promotes a subtask to a standalone feature at branch or merge time; re-parenting is an explicit decision made up front.
-2. **All work for the feature lands on that branch** (implementation, fixes, follow-ups), with one PR. Never cut a new branch off the mainline for a fix to an existing feature. One branch per feature keeps the operator looking at one PR, not a scatter of fragments.
+2. **All work for the feature lands on that branch** (implementation, fixes, follow-ups); at the end the operator opens one PR for it. Never cut a new branch off the mainline for a fix to an existing feature. One branch per feature keeps the operator looking at one PR, not a scatter of fragments.
 3. **Sub-branches, when used at all, branch off the feature branch, merge back into it, and are deleted** (`git branch -d`) right after. A sub-branch never merges into the mainline and never outlives its merge-back. One developer on one feature just works on the feature branch.
 4. **Start from the current base and reconcile at hand-off.** Fetch, branch off the up-to-date base, and merge the base into the feature branch before handing off, so a stale base surfaces as a conflict you fix, not one the operator finds at PR time.
 
 ## The mainline is never touched by agents
-The mainline named in the profile (`$GIT_GUARD_MAINLINE`) is never committed to, merged into, switched to, reset or pushed by an agent. It changes only when a human merges the feature branch's PR. An agent's terminal deliverable is "feature branch ready + PR", never a local land.
+The mainline named in the profile (`$GIT_GUARD_MAINLINE`) is never committed to, merged into, switched to, reset or pushed by an agent. It changes only when a human merges the feature branch's PR. An agent's terminal deliverable is the pushed, gate-complete feature branch, never a local land and never a PR.
+
+## Pull requests are operator-only
+No agent opens, edits, retitles, retargets, closes, reopens, readies or merges a pull request, on any path: `gh pr`, `gh api`, `hub`, or a GitHub MCP tool. git-guard blocks all of them. Reading a PR (`gh pr list|view|checks|diff`) and commenting on one stay allowed. No issue may exist whose job is to open, refresh or close a PR. Where a run would have opened one, the hand-off carries the literal line `Operator action needed: open the PR — gh pr create --base <mainline> --head <branch>` per `_shared/board-decision-handoff.md`.
 
 Agents **may push any non-mainline branch**. git-guard enforces the mainline rule; it is a safety net, not a sandbox, so the rule holds even where the guard would not catch a violation.
 
@@ -22,7 +25,7 @@ Nothing squashes automatically. When the operator triggers "prepare branch for m
 2. squashes it to one Conventional Commit;
 3. pushes **the feature branch only**, with `git push --force-with-lease`.
 
-It never pushes, checks out or touches the mainline. The human's remaining step is merging the PR.
+It never pushes, checks out or touches the mainline, and never opens or edits a PR. The human's remaining steps are opening the PR (when none is open) and merging it.
 
 ## Worktree hygiene
 A branch checked out in any worktree is locked for every other checkout, including the operator's. So:

@@ -41,13 +41,18 @@ Policy:
   revert, tag, am, update-ref, filter-branch, reflog, config.
 - A push whose remote or refspec holds `$`, a backtick or `$(` is blocked: the guard
   cannot resolve what it would push.
-- `gh`: an agent may open a PR (never merge one). BLOCK `gh pr merge`, `gh repo delete`
-  and a write `gh api` call (-X/--method PUT|POST|PATCH|DELETE, or the implicit POST of
-  -f/-F/--input) whose path holds /merge, /git/refs, /branches or /protection, and a
-  `gh api graphql` whose body (fields, -F @file, --input file) holds a mergePullRequest,
-  deleteRef or updateRef mutation. Flags between `pr`/`repo` and the subcommand
-  (`gh pr -R o/r merge`) are skipped. Every other `gh` command passes. A human merges
-  into the mainline.
+- Pull requests are operator-only: an agent never opens, edits, closes, reopens,
+  readies or merges a PR. BLOCK `gh pr create|new|edit|close|reopen|ready|merge`,
+  `gh repo delete`, a write `gh api` call (-X/--method PUT|POST|PATCH|DELETE, or the
+  implicit POST of -f/-F/--input) whose path is a PR itself (`…/pulls`, `…/pulls/<n>`,
+  `…/pulls/<n>/merge|update-branch|requested_reviewers`) or holds /merge, /git/refs,
+  /branches or /protection, a `gh api graphql` whose body (fields, -F @file, --input
+  file) holds a create/update/close/reopen/merge/markReadyForReview PullRequest,
+  deleteRef or updateRef mutation, `hub pull-request`, and the GitHub MCP tools
+  create/update/merge_pull_request, update_pull_request_branch and
+  request_copilot_review (this hook is also wired for the `mcp__.*github.*` matcher).
+  Flags between `pr`/`repo` and the subcommand (`gh pr -R o/r merge`) are skipped.
+  Reads and comments pass. The operator opens the ONE PR and merges it.
 
 Exit codes: 0 = allow, 2 = block (stderr shown to the model).
 
@@ -76,7 +81,21 @@ try:
 except Exception:
     sys.exit(0)
 
+PR_MSG = ("Pull requests are operator-only: an agent never opens, edits, closes, reopens or "
+          "merges a PR. Push the ONE feature branch and hand off with the literal line "
+          "`Operator action needed: open the PR — gh pr create --base <mainline> --head <branch>`.")
+
+# GitHub MCP tools (wired through the `mcp__.*github.*` matcher): block PR writes only.
+tool_name = data.get("tool_name") or ""
+if tool_name.startswith("mcp__"):
+    if re.search(r"(create_pull_request|update_pull_request|update_pull_request_branch|"
+                 r"merge_pull_request|request_copilot_review)$", tool_name):
+        block(PR_MSG)
+    sys.exit(0)
+
 cmd = (data.get("tool_input") or {}).get("command", "") or ""
+if re.search(r"\bhub\b[^\n;&|]*\bpull-request\b", cmd):
+    block(PR_MSG)
 if "git" not in cmd and not re.search(r"\bgh\b", cmd):
     sys.exit(0)
 
@@ -500,7 +519,10 @@ GH_API_BODY_OPTS = {"-f", "--raw-field", "-F", "--field", "--input"}
 
 
 GH_BOOL_FLAGS = {"-h", "--help"}
-GH_GRAPHQL_WRITES = re.compile(r"\b(mergePullRequest|deleteRef|updateRef)\b")
+GH_GRAPHQL_WRITES = re.compile(r"\b(mergePullRequest|deleteRef|updateRef|createPullRequest|updatePullRequest|"
+                               r"closePullRequest|reopenPullRequest|markPullRequestReadyForReview)\b")
+GH_PR_WRITE_SUBCOMMANDS = {"create", "new", "edit", "close", "reopen", "ready", "merge"}
+GH_PR_PATH = re.compile(r"(^|/)pulls(/\d+(/(merge|update-branch|requested_reviewers))?)?/?$")
 
 
 def gh_positionals(args):
@@ -561,9 +583,8 @@ def gh_graphql_body(rest):
 
 def gh_decision(args):
     """Block what merges, deletes a repo or rewrites refs/branch protection; pass the rest."""
-    if gh_subcommand(args, "pr") == "merge":
-        block("`gh pr merge` is blocked: an agent may open a PR, never merge one. "
-              "A human merges the PR into the mainline.")
+    if gh_subcommand(args, "pr") in GH_PR_WRITE_SUBCOMMANDS:
+        block("`gh pr %s` is blocked. %s" % (gh_subcommand(args, "pr"), PR_MSG))
     if gh_subcommand(args, "repo") == "delete":
         block("`gh repo delete` is blocked.")
     if "api" not in args:
@@ -591,10 +612,12 @@ def gh_decision(args):
             paths.append(a)
         i += 1
     if paths and paths[0] == "graphql" and GH_GRAPHQL_WRITES.search(gh_graphql_body(rest)):
-        block("`gh api graphql` with a mergePullRequest / deleteRef / updateRef mutation is blocked: "
-              "an agent never merges a PR or moves a ref. A human merges the PR into the mainline.")
+        block("`gh api graphql` with a pull-request or ref mutation is blocked: an agent never "
+              "opens, edits, closes or merges a PR and never moves a ref. " + PR_MSG)
     if method is None and has_body:
         method = "POST"  # gh api sends POST when fields or --input are given
+    if (method or "GET").upper() in GH_WRITE_METHODS and any(GH_PR_PATH.search(p) for p in paths):
+        block("`gh api` %s on %s is blocked. %s" % (method.upper(), " ".join(paths), PR_MSG))
     if (method or "GET").upper() in GH_WRITE_METHODS and any(
             seg in p for p in paths for seg in GH_PROTECTED_PATHS):
         block("`gh api` %s on %s is blocked: it can merge, move refs or change branch "

@@ -8,6 +8,12 @@
           { "type": "command", "command": "python3 \"$AGENTS_REPO/hooks/git-guard.py\"", "timeout": 15 },
           { "type": "command", "command": "bash \"$AGENTS_REPO/hooks/completion-gate.sh\"", "timeout": 15 }
         ]
+      },
+      {
+        "matcher": "mcp__.*github.*",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$AGENTS_REPO/hooks/git-guard.py\"", "timeout": 15 }
+        ]
       }
     ],
     "SessionEnd": [

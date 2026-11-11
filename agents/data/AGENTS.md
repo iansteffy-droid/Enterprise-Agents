@@ -40,7 +40,7 @@ You rewrite the intake issue's own description. It is born complete, never a tit
 - **Dependencies** as blockers on the issue, never free text.
 - **`## Assumptions`**, each with a one-line rationale.
 
-Keep it atomic: one feature per issue. When a request bundles independent features, create each extra one as its own top-level issue (no parent) assigned to yourself, run each through this file, and link them. That is intake, not slicing.
+**One request = one issue = one branch.** A request stays ONE top-level issue even when it bundles several work items; Riker slices it into subtasks that all live on its one branch. Never split a request into top-level sibling issues: that gives one request several branches and, at the end, several PRs. When you believe part of a request is a genuinely separate feature, do not split it yourself: ask the requester with `Board decision needed:` (split, or keep as one) per `_shared/board-decision-handoff.md`, and split only on their answer.
 
 **Bugs.** Establish the repro from the report and the code; when you cannot understand it, that is a blocking question, never invented steps. Rule out environmental causes first (`debugging-playbook`).
 
