@@ -97,6 +97,7 @@ SONNET="$(grep sonnet <<<"$models" | sort -V | tail -n1)"
 BOARD="$(curl -sf "$API/api/auth/get-session" | jq -r .session.userId)"
 OP="$CODE/zz-test"; FL="$CODE/zz-test-fleet"; RT="$CODE/zz-test-retro"
 id_of() { jq -r --arg n "$1" '.[]|select(.name==$n)|.id' <<<"$agents"; }
+id_of_dir() { id_of "$(jq -r --arg d "$1" '.[]|select(.dir==$d)|.name' "$KIT/templates/company/roster.json")"; }
 
 bad_agents=""
 while IFS=$'\t' read -r dir name tier reports; do
@@ -138,8 +139,8 @@ check "opus and sonnet models resolved" test -n "$OPUS" -a -n "$SONNET"
 bp="$(curl -sf "$API/api/companies/$CID/workflow/blueprint")"
 check "five feature stages" eq "$(jq '.featureStages|length' <<<"$bp")" 5
 check "feature chain ends in a user approval" eq "$(jq -c '.featureStages[-1]|[.type,.participants[0].type,.participants[0].userId]' <<<"$bp")" "$(jq -nc --arg u "$BOARD" '["approval","user",$u]')"
-check "one subtask stage (Hops)" eq "$(jq -r '.subtaskStages|length' <<<"$bp"):$(jq -r '.subtaskStages[0].participants[0].agentId' <<<"$bp")" "1:$(id_of 'Hops the Code Reviewer Rabbit')"
-check "intake agent is Data" eq "$(jq -r .intakeAgentId <<<"$bp")" "$(id_of 'Lt. Commander Data')"
+check "one subtask stage (Hops)" eq "$(jq -r '.subtaskStages|length' <<<"$bp"):$(jq -r '.subtaskStages[0].participants[0].agentId' <<<"$bp")" "1:$(id_of_dir hops)"
+check "intake agent is Data" eq "$(jq -r .intakeAgentId <<<"$bp")" "$(id_of_dir data)"
 check "gated subtask kinds" eq "$(jq -c .gatedSubtaskKinds <<<"$bp")" '["impl","tests"]'
 routines="$(curl -sf "$API/api/companies/$CID/routines")"
 check "four routines" eq "$(jq length <<<"$routines")" 4
@@ -168,7 +169,7 @@ check "client.yaml written" grep -q "^company_id: \"$CID\"" "$KIT/clients/zz-tes
 check "env file guards the kit checkout as an operator tree" grep -qx "PRODUCT_OPERATOR_TREE=$OP:$KIT" "$KIT/clients/zz-test/agent-env"
 
 issues="$(curl -sf "$API/api/companies/$CID/issues")"
-BOOTHBY="$(id_of Boothby)"
+BOOTHBY="$(id_of_dir boothby)"
 # The stub cannot run Boothby, so the server's run recovery may move the issue to a recovery
 # owner; the first owner is then the recovery activity's previousOwnerAgentId.
 first_owner() { # issue id

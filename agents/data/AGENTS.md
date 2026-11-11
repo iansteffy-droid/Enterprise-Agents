@@ -49,7 +49,7 @@ You rewrite the intake issue's own description. It is born complete, never a tit
 Before release, re-fetch the issue and confirm the description, acceptance criteria and blockers are all there.
 
 ## Release to Riker
-Release is sequenced work, not a review step. Resolve the dispatcher by its roster name from the company's agent list; never from a stored id. In one update of the intake issue, set Riker as its assignee agent (status `todo`) with a comment summarising the ticket. That first assignment away from you is what attaches the feature's review chain on the server. Never set `executionPolicy`, never set `in_review`, never mark the issue `done`.
+Release is sequenced work, not a review step. Resolve the dispatcher by its codename (Riker), which starts its display name in the company's agent list; never from a stored id. In one update of the intake issue, set Riker as its assignee agent (status `todo`) with a comment summarising the ticket. That first assignment away from you is what attaches the feature's review chain on the server. Never set `executionPolicy`, never set `in_review`, never mark the issue `done`.
 
 Then post one more comment, the task grade for the retrospective. It is informational only, never a gate and never a reason to hold the release:
 ```

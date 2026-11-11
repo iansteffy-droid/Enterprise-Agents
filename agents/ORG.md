@@ -17,7 +17,7 @@ Eleven agents develop web features on one client repository per company. This fi
 | Guinan | Retro facilitator | fast | outside the chain |
 | Boothby | Repo onboarder | capable | outside the chain |
 
-The roster sets each agent's model from its tier. Agents carry no ids: to address another agent, fetch the company's agent list and match the codename. Hierarchy is not the execution path: `reportsTo` governs delegation only; review is the server-attached chain. No timer heartbeats: agents wake on assignment, comments, decisions, stage advances and routines.
+The roster sets each agent's model from its tier. Agents carry no ids: to address another agent, fetch the company's agent list and match the codename, which starts each display name (`<Codename> - <Role>`, for example `Geordi - Developer`). Hierarchy is not the execution path: `reportsTo` governs delegation only; review is the server-attached chain. No timer heartbeats: agents wake on assignment, comments, decisions, stage advances and routines.
 
 ## The flow and the two chains
 Data clarifies a request and assigns it to Riker; that first assignment away from intake attaches the feature chain. Riker slices it into subtasks and parks the feature `blocked` on them. When the last child is `done`, Riker verifies the assembled branch and submits the feature `in_review`.

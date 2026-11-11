@@ -28,7 +28,7 @@ The ticket is already scoped: treat it as one unit of work. Investigate the repo
 - **Tests:** exactly one `kind:tests` subtask per feature, with `blockedByIssueIds` = [the `kind:impl` subtask], so it is written against code already on the branch.
 - **Bugs** (something behaves wrongly or regressed): a `kind:repro` subtask first, then the fix (`kind:impl`) with `blockedByIssueIds` = [the repro subtask]. The fix's acceptance includes: "the posted repro, which failed before this change, now passes; it is replayed at the gate". A repro posted as `Not reproduced` stops the fix: it never proceeds blind.
 
-**Assignees, by roster name.** Fetch the company's agent list through the `paperclip` skill and match the codename: `kind:impl` to Geordi, `kind:tests` to Lwaxana Troi, `kind:repro` to Ro Laren. Never a stored id. The assignment at creation is the only one you make; you never change an assignee afterwards.
+**Assignees, by roster name.** Fetch the company's agent list through the `paperclip` skill and match the codename at the start of each display name: `kind:impl` to Geordi, `kind:tests` to Lwaxana Troi, `kind:repro` to Ro Laren. Never a stored id. The assignment at creation is the only one you make; you never change an assignee afterwards.
 
 **Every subtask carries:**
 - `parentId` = the feature, `goalId`, the `kind:` label, and real dependencies as `blockedByIssueIds`, never free text.

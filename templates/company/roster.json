@@ -1,7 +1,7 @@
 [
   {
     "dir": "data",
-    "name": "Lt. Commander Data",
+    "name": "Lt. Commander Data - Triage & Intake Lead",
     "title": "Intake lead",
     "role": "pm",
     "tier": "sonnet",
@@ -17,7 +17,7 @@
   },
   {
     "dir": "riker",
-    "name": "Riker",
+    "name": "Riker - CTO",
     "title": "Dispatcher",
     "role": "cto",
     "tier": "opus",
@@ -30,7 +30,7 @@
   },
   {
     "dir": "geordi",
-    "name": "Geordi",
+    "name": "Geordi - Developer",
     "title": "Developer",
     "role": "engineer",
     "tier": "opus",
@@ -62,7 +62,7 @@
   },
   {
     "dir": "worf",
-    "name": "Worf",
+    "name": "Worf - Security Reviewer",
     "title": "Security reviewer",
     "role": "engineer",
     "tier": "opus",
@@ -77,7 +77,7 @@
   },
   {
     "dir": "crusher",
-    "name": "Dr Crusher",
+    "name": "Dr Crusher - QA Verifier",
     "title": "QA and acceptance",
     "role": "engineer",
     "tier": "opus",
@@ -92,7 +92,7 @@
   },
   {
     "dir": "ro-laren",
-    "name": "Ro Laren",
+    "name": "Ro Laren - Visual Verifier",
     "title": "Visual verifier and repro author",
     "role": "engineer",
     "tier": "sonnet",
@@ -105,7 +105,7 @@
   },
   {
     "dir": "obrien",
-    "name": "O'Brien",
+    "name": "O'Brien - Branch Hygiene & Release Integration",
     "title": "Branch hygiene and release integration",
     "role": "engineer",
     "tier": "sonnet",
@@ -120,7 +120,7 @@
   },
   {
     "dir": "lwaxana",
-    "name": "Lwaxana Troi",
+    "name": "Lwaxana Troi - Test Planner",
     "title": "Test planner and writer",
     "role": "engineer",
     "tier": "sonnet",
@@ -135,7 +135,7 @@
   },
   {
     "dir": "guinan",
-    "name": "Guinan",
+    "name": "Guinan - Retro Facilitator",
     "title": "Retro facilitator",
     "role": "engineer",
     "tier": "sonnet",
@@ -150,7 +150,7 @@
   },
   {
     "dir": "boothby",
-    "name": "Boothby",
+    "name": "Boothby - Repo Onboarder",
     "title": "Repo onboarder",
     "role": "engineer",
     "tier": "opus",
