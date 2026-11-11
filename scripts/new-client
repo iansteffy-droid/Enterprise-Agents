@@ -17,8 +17,9 @@
 #   --dry-run     print the numbered steps with their values; change nothing.
 #
 # Environment (optional): CLAUDE_CONFIG_DIR (default $HOME/.claude-paperclip-enterprise),
-# COMPLETION_GATE_EVIDENCE_DIR, QA_EVIDENCE_DIR, LINT_BANNED_TERMS_DIR (defaults under
-# $HOME/.paperclip-enterprise).
+# COMPLETION_GATE_EVIDENCE_DIR, QA_EVIDENCE_DIR, LINT_BANNED_TERMS_DIR, AGENT_AVATAR_DIR (defaults
+# under $HOME/.paperclip-enterprise). AGENT_AVATAR_DIR holds private profile pictures named
+# <roster dir>.<jpg|jpeg|png|webp|gif>; they are never committed to the kit.
 #
 # Idempotent: every step looks for its result first and prints `exists <what>`, or
 # `created <what>` / `updated <what>` when it had to act. A second run creates nothing.
@@ -85,6 +86,7 @@ FLEET_BRANCH="fleet/$NAME" ONB_BRANCH="onboarding/$NAME"
 CLIENT_DIR="$KIT/clients/$NAME" YAML="$KIT/clients/$NAME/client.yaml" ENVF="$KIT/clients/$NAME/agent-env"
 EVID_VIS="${COMPLETION_GATE_EVIDENCE_DIR:-$HOME/.paperclip-enterprise/evidence/visual}"
 EVID_QA="${QA_EVIDENCE_DIR:-$HOME/.paperclip-enterprise/evidence/qa}"
+AVATAR_DIR="${AGENT_AVATAR_DIR:-$HOME/.paperclip-enterprise/avatars}"
 LINT_DIR="${LINT_BANNED_TERMS_DIR:-$HOME/.paperclip-enterprise/lint}"
 ICFG="$HOME/.paperclip/instances/$INSTANCE/config.json"
 if [ -z "$PORT" ]; then PORT="$( [ -f "$ICFG" ] && jq -r '.server.port // empty' "$ICFG" || true)"; PORT="${PORT:-3200}"; fi
@@ -125,6 +127,7 @@ if [ "$DRY" = 1 ]; then
   step "company skills from $KIT/skills: $(jq -r '[.[].desiredSkills[]]|unique|join(", ")' "$ROSTER")"
   step "agents ($(jq length "$ROSTER")): $(jq -r '[.[]|"\(.name) [\(.tier)]"]|join(", ")' "$ROSTER"); cwd $FL (Guinan: $RT); instructions $KIT/agents/<dir>/AGENTS.md"
   step "reportsTo by dir: $(jq -r '[.[]|select(.reportsTo)|"\(.dir)->\(.reportsTo)"]|join(", ")' "$ROSTER")"
+  step "profile pictures from $AVATAR_DIR/<dir>.<ext> for agents that have none (skipped if absent)"
   step "skills sync per agent (POST /api/agents/:id/skills/sync when the desired set differs)"
   step "routines: $(jq -r '[.[].title]|join("; ")' "$ROUTINES")"
   step "blueprint (PUT /api/companies/:id/workflow/blueprint): $(jq -r '"subtask " + ([.subtask_stages[]|.participants[0].dir // "user"]|join(",")) + "; feature " + ([.feature_stages[]|.participants[0].dir // "user"]|join(",")) + "; intake " + .intake_agent' "$BLUEPRINT"); retro + prepare-for-merge routine ids by title"
@@ -393,6 +396,23 @@ for dir in $(roster_dirs); do
     pc_patch "/api/agents/$id" "$b" >/dev/null || die "reportsTo for $dir failed"
     res updated "reportsTo $dir -> $mgr"
   fi
+done
+
+step "profile pictures"
+for dir in $(roster_dirs); do
+  id="$(agent_id "$dir")"
+  pic="$(ls "$AVATAR_DIR/$dir".{jpg,jpeg,png,webp,gif} 2>/dev/null | head -n1 || true)"
+  [ -n "$pic" ] || { res skipped "picture $dir (none in $AVATAR_DIR)"; continue; }
+  if [ -n "$(jq -r --arg i "$id" '.[]|select(.id==$i)|.avatarAssetId // empty' "$TMP/agents.json")" ]; then
+    res exists "picture $dir"; continue
+  fi
+  ext="${pic##*.}"; [ "$ext" = jpg ] && ext=jpeg
+  asset="$(curl -sS --max-time 60 -F "file=@$pic;type=image/$ext" -F namespace=agent-avatars \
+    "$API/api/companies/$CID/assets/images" | jq -r '.assetId // empty')"
+  [ -n "$asset" ] || die "picture upload for $dir failed"
+  b="$(pc_body --arg a "$asset" '{avatarAssetId:$a}')"
+  pc_patch "/api/agents/$id" "$b" >/dev/null || die "picture for $dir failed"
+  res created "picture $dir"
 done
 
 step "skills sync"
